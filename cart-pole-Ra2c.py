@@ -14,12 +14,17 @@ import numpy as np
 
 # LR = .01  # Learning rate
 LR = .01
+beta = 0.001
 SEED = None  # Random seed for reproducibility
-MAX_EPISODES = 1000  # Max number of episodes
+MAX_EPISODES = 2000  # Max number of episodes
 
 # Init actor-critic agent
-agent = A2C(gym.make('CartPole-v0'), random_seed=SEED)
-algo_name="Riemannian"
+
+algo_name="non-Riemannian"
+if algo_name=="Riemannian":
+    agent = A2C(gym.make('CartPole-v0'), random_seed=SEED, Riemannian = True)
+else:
+    agent = A2C(gym.make('CartPole-v0'), random_seed=SEED, Riemannian = False)
 #orthogonal initialize
 def initialize_weights(m):
     if isinstance(m, nn.Linear):
@@ -29,8 +34,8 @@ agent.critic.apply(initialize_weights)
 
 
 # Init optimizers
-# actor_optim = optim.SGD(agent.actor.parameters(), lr=LR)
-# critic_optim = optim.SGD(agent.critic.parameters(), lr=LR)
+# actor_optim = optim.SGD(agent.actor.parameters(), lr=1)
+# critic_optim = optim.SGD(agent.critic.parameters(), lr=1)
 #Adagrad, Adam can work
 actor_optim = optim.Adam(agent.actor.parameters(), lr=LR)
 critic_optim = optim.Adam(agent.critic.parameters(), lr=LR)
@@ -83,9 +88,9 @@ for episode in range(MAX_EPISODES):
     actor_optim.zero_grad()
     rewards, critic_vals, action_lp_vals, total_reward = agent.train_env_episode(render=False)
     r.append(total_reward)
-    agent_params_before_update = [param.clone().detach() for name, param in agent.actor.named_parameters() if 'weight' in name]
-    critic_params_before_update = [param.clone().detach() for name, param in agent.critic.named_parameters() if 'weight' in name]
-    l_actor, l_critic = agent.compute_loss(action_p_vals=action_lp_vals, G=rewards, V=critic_vals)
+    agent_params_before_update = {name : param.clone().detach() for name, param in agent.actor.named_parameters() if 'weight' in name}
+    critic_params_before_update = {name : param.clone().detach() for name, param in agent.critic.named_parameters() if 'weight' in name}
+    l_actor, l_critic = agent.compute_loss(action_p_vals = action_lp_vals, G = rewards, V = critic_vals)
     loss_critic.append(l_critic.clone().detach())
     loss_agent.append(l_actor.clone().detach())
     l_actor.backward()
@@ -94,42 +99,31 @@ for episode in range(MAX_EPISODES):
     actor_optim.step()
     critic_optim.step()
 
-    agent_params_after_update = [param.clone().detach() for name, param in agent.actor.named_parameters() if 'weight' in name]
-    critic_params_after_update = [param.clone().detach() for name, param in agent.critic.named_parameters() if 'weight' in name]
-
-    agent_params_diff = [param_after - param_before for param_after, param_before in zip(agent_params_before_update, agent_params_after_update)]
-    critic_params_diff = [param_after - param_before for param_after, param_before in zip(critic_params_before_update, critic_params_after_update)]
+    agent_grad = {name:param.grad.clone().detach() for name, param in agent.actor.named_parameters() if 'weight' in name}
+    critic_grad = {name:param.grad.clone().detach() for name, param in agent.critic.named_parameters() if 'weight' in name}
     #agent update
-    agent_tangent_grad = [proju(i,j) for i,j in zip(agent_params_before_update,agent_params_diff)]
-    agent_stiefel_param = [projx(i+j) for i,j in zip (agent_params_before_update, agent_tangent_grad)]
-    
-    # agent.actor.load_state_dict(torch.load("perfect_policy.pt"))
-    agent_state_dict = agent.actor.state_dict()
-    count=0
-    for i, (name, param) in enumerate(agent.actor.named_parameters()):
-        if 'weight' in name:
-            _, sigma, _=torch.linalg.svd(agent_state_dict[name], full_matrices=False)
-            # print(sigma)
-            agent_state_dict[name] = agent_stiefel_param[count]
-            count+=1
-    # if algo_name=="Riemannian":
-    #     agent.actor.load_state_dict(agent_state_dict) #comment it for Adam gradient descent for actor
+    agent_tangent_grad={}
+    for key in agent_grad.keys():
+        agent_tangent_grad[key] = proju(agent_params_before_update[key], agent_grad[key])
+    agent_stiefel_param={}
+    for key in agent_grad.keys():
+        agent_stiefel_param[key] = projx(agent_params_before_update[key] + 0.01 * agent_tangent_grad[key])
+
 
     #critic update
-    critic_tangent_grad = [proju(i,j) for i,j in zip(critic_params_before_update,critic_params_diff)]
-    critic_stiefel_param = [projx(i+j) for i,j in zip (critic_params_before_update, critic_tangent_grad)]
-    critic_state_dict = agent.critic.state_dict()
-    count=0
-    for i, (name, param) in enumerate(agent.critic.named_parameters()):
-        # print(name)
-        if 'weight' in name:
-            # if '2.weight' in name:
-            #     critic_state_dict[name] = critic_stiefel_param[count]
-            critic_state_dict[name] = critic_stiefel_param[count]
-            # print(check_point_on_manifold(critic_state_dict[name]))
-            count+=1
+    critic_tangent_grad={}
+    for key in critic_grad.keys():
+        critic_tangent_grad[key] = proju(critic_params_before_update[key], critic_grad[key])
+    critic_stiefel_param={}
+    for key in critic_grad.keys():
+        critic_stiefel_param[key] = projx(critic_params_before_update[key] + 0.01 * critic_tangent_grad[key])
 
     if algo_name=="Riemannian":
+        # print("in_it")
+        critic_state_dict = agent.critic.state_dict()
+        # for name in critic_stiefel_param.keys():
+        #     critic_state_dict[name] = critic_stiefel_param[name]
+        critic_state_dict["2.weight"] = critic_stiefel_param["2.weight"]
         agent.critic.load_state_dict(critic_state_dict) #comment it for Adam gradient descent for critic
     
     if not algo_name=="Riemannian":

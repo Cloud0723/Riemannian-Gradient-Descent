@@ -5,7 +5,7 @@ from torch.distributions import Categorical
 
 class A2C(nn.Module):
 
-    def __init__(self, env, hidden_size=128, gamma=.99, random_seed=None):
+    def __init__(self, env, hidden_size=128, gamma=.99, random_seed=None, Riemannian=False):
         """
         Assumes fixed continuous observation space
         and fixed discrete action space (for now)
@@ -41,6 +41,15 @@ class A2C(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, 1)
         ).double()
+        if Riemannian:
+            self.critic = nn.Sequential(
+            nn.Linear(self.in_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size, bias = False),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, 1)
+            ).double()
 
     def train_env_episode(self, render=False):
         """
