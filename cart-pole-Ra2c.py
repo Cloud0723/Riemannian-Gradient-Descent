@@ -11,7 +11,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import numpy as np
-
+import random
 # LR = .01  # Learning rate
 LR = .01
 beta = 0.001
@@ -20,17 +20,42 @@ MAX_EPISODES = 2000  # Max number of episodes
 
 # Init actor-critic agent
 
-algo_name="non-Riemannian"
-if algo_name=="Riemannian":
-    agent = A2C(gym.make('CartPole-v0'), random_seed=SEED, Riemannian = True)
-else:
-    agent = A2C(gym.make('CartPole-v0'), random_seed=SEED, Riemannian = False)
-#orthogonal initialize
+import argparse
+
+# 创建参数解析器
+parser = argparse.ArgumentParser(description='An example script with named arguments.')
+
+# 添加参数
+parser.add_argument('--m', type=int)
+parser.add_argument('--r', type=int)
+parser.add_argument('--n', type=int)
+parser.add_argument('--seed', type=int)
+parser.add_argument('--algoname', type=str)
+
+args = parser.parse_args()
+
+M=args.m
+N=args.n
+R=args.r
+SEED=args.seed
+
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+random.seed(SEED)
+
 def initialize_weights(m):
     if isinstance(m, nn.Linear):
         nn.init.orthogonal_(m.weight)
-agent.actor.apply(initialize_weights)
-agent.critic.apply(initialize_weights)
+algo_name=args.algoname #"non-Riemannian"
+if algo_name=="Riemannian":
+    agent = A2C(gym.make('CartPole-v0'), random_seed=SEED, Riemannian = True)
+    agent.critic.apply(initialize_weights)
+else:
+    agent = A2C(gym.make('CartPole-v0'), random_seed=SEED, Riemannian = False)
+#orthogonal initialize
+
+# agent.actor.apply(initialize_weights)
+# agent.critic.apply(initialize_weights)
 
 
 # Init optimizers
@@ -126,15 +151,10 @@ for episode in range(MAX_EPISODES):
         critic_state_dict["2.weight"] = critic_stiefel_param["2.weight"]
         agent.critic.load_state_dict(critic_state_dict) #comment it for Adam gradient descent for critic
     
-    if not algo_name=="Riemannian":
-        np.save("A2C_critic_loss.npy",loss_critic)
-        np.save("A2C_agent_loss.npy",loss_agent)
-        np.save("A2C_cartpole.npy",r)
-    else:
-        # print("in_it")
-        np.save("A2C_critic_loss_Riemannian.npy",loss_critic)
-        np.save("A2C_agent_loss_Riemannian.npy",loss_agent)
-        np.save("A2C_cartpole_Riemannian.npy",r)
+
+    # np.save("A2C_critic_loss_Riemannian.npy",loss_critic)
+    # np.save("A2C_agent_loss_Riemannian.npy",loss_agent)
+    np.save(f"./result/{algo_name}/Cartpole_seed_{SEED}_m_{M}_r_{R}_n_{N}_reward.npy",r)
     # Check average reward every 100 episodes, print, and end script if solved
     if len(r) >= 100:  # check average every 100 episodes
 
